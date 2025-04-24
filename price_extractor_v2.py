@@ -40,15 +40,34 @@ def setup_driver(headless=True):
         chrome_paths = [
             "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
             "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-            os.environ.get("PROGRAMFILES") + "\\Google\\Chrome\\Application\\chrome.exe",
-            os.environ.get("PROGRAMFILES(X86)") + "\\Google\\Chrome\\Application\\chrome.exe"
         ]
         
+        # Safely add environment variable paths
+        program_files = os.environ.get("PROGRAMFILES")
+        if program_files:
+            chrome_paths.append(program_files + "\\Google\\Chrome\\Application\\chrome.exe")
+            
+        program_files_x86 = os.environ.get("PROGRAMFILES(X86)")
+        if program_files_x86:
+            chrome_paths.append(program_files_x86 + "\\Google\\Chrome\\Application\\chrome.exe")
+            
+        # Linux paths
+        chrome_paths.extend([
+            "/usr/bin/google-chrome",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/chromium"
+        ])
+        
+        browser_found = False
         for path in chrome_paths:
             if path and os.path.exists(path):
                 logger.info(f"Using Chrome binary at: {path}")
                 chrome_options.binary_location = path
+                browser_found = True
                 break
+                
+        if not browser_found:
+            logger.warning("No Chrome binary found in common locations")
         
         try:
             # First try using the ChromeDriverManager approach
@@ -61,13 +80,16 @@ def setup_driver(headless=True):
                 driver = webdriver.Chrome(options=chrome_options)
             except Exception as e2:
                 logger.warning(f"Failed to use direct webdriver instantiation: {str(e2)}")
-                # Last resort: use the system path
-                from selenium.webdriver.chrome.service import Service as ChromeService
-                from webdriver_manager.chrome import ChromeDriverManager
-                
-                # Try using a different service instantiation method
-                service = ChromeService(executable_path=ChromeDriverManager().install())
-                driver = webdriver.Chrome(service=service, options=chrome_options)
+                # Last resort: try without binary location if it was set
+                if browser_found:
+                    logger.info("Trying without binary location")
+                    chrome_options.binary_location = ""
+                    driver = webdriver.Chrome(options=chrome_options)
+                else:
+                    # Try with system ChromeDriver
+                    from selenium.webdriver.chrome.service import Service as ChromeService
+                    service = ChromeService()
+                    driver = webdriver.Chrome(service=service, options=chrome_options)
         
         driver.set_page_load_timeout(30)
         return driver
