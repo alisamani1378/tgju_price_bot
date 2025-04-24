@@ -33,13 +33,15 @@ PRICE_MESSAGE_KEYWORD = "قیمت‌های به‌روز شده"
 # زمان‌های ارسال پیام جدید (به جای ویرایش)
 SEND_TIMES = [
     time(9, 0),   # 9:00 AM
-    time(18, 0)   # 6:00 PM
+    time(19, 0)  # 9:50 PM
 ]
 
 # فایل ذخیره شناسه پیام‌های مربوط به قیمت
 PRICE_MESSAGES_FILE = "price_messages.json"
 # فایل ذخیره آخرین شناسه پیام
 LAST_MESSAGE_ID_FILE = "last_message_id.txt"
+# فایل ذخیره آخرین زمان ارسال پیام جدید
+LAST_SEND_TIME_FILE = "last_send_time.txt"
 
 def save_price_message_id(message_id):
     """ذخیره شناسه پیام قیمت در فایل"""
@@ -78,6 +80,8 @@ def save_last_message_id(message_id):
     try:
         with open(LAST_MESSAGE_ID_FILE, 'w') as f:
             f.write(str(message_id))
+        # به message_manager اطلاع بدهیم
+        save_latest_message_id(message_id)
         logger.info(f"آخرین شناسه پیام {message_id} ذخیره شد")
     except Exception as e:
         logger.error(f"خطا در ذخیره آخرین شناسه پیام: {e}")
@@ -94,23 +98,89 @@ def get_last_message_id():
         logger.error(f"خطا در خواندن آخرین شناسه پیام: {e}")
         return None
 
+def save_last_send_time():
+    """ذخیره آخرین زمان ارسال پیام جدید"""
+    try:
+        now = get_iran_time_now()
+        with open(LAST_SEND_TIME_FILE, 'w') as f:
+            f.write(now.strftime("%Y-%m-%d %H:%M:%S"))
+        logger.info(f"آخرین زمان ارسال پیام ذخیره شد: {now}")
+    except Exception as e:
+        logger.error(f"خطا در ذخیره آخرین زمان ارسال پیام: {e}")
+
+def get_last_send_time():
+    """دریافت آخرین زمان ارسال پیام جدید"""
+    try:
+        if os.path.exists(LAST_SEND_TIME_FILE):
+            with open(LAST_SEND_TIME_FILE, 'r') as f:
+                time_str = f.read().strip()
+                if time_str:
+                    # تبدیل به datetime با منطقه زمانی ایران (نه UTC)
+                    dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+                    return dt.replace(tzinfo=pytz.timezone('Asia/Tehran'))
+        return None
+    except Exception as e:
+        logger.error(f"خطا در خواندن آخرین زمان ارسال پیام: {e}")
+        return None
+
 def should_send_new_message():
     """بررسی اینکه آیا باید پیام جدید ارسال شود یا پیام موجود ویرایش شود"""
     now = get_iran_time_now()
+    logger.info(f"بررسی نیاز به ارسال پیام جدید - زمان فعلی: {now.strftime('%H:%M:%S')}")
     
     # اگر آخرین پیامی وجود ندارد، پیام جدید ارسال شود
     if get_last_message_id() is None:
+        logger.info("هیچ پیام قبلی وجود ندارد، پیام جدید ارسال خواهد شد")
         return True
-        
+    
+    # دریافت آخرین زمان ارسال پیام
+    last_send_time = get_last_send_time()
+    if last_send_time:
+        logger.info(f"آخرین زمان ارسال پیام: {last_send_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    else:
+        logger.info("هیچ زمان ارسال قبلی ثبت نشده است")
+    
     # بررسی زمان‌های مشخص شده برای ارسال پیام جدید
+    current_time = now.time()
     for send_time in SEND_TIMES:
-        current_time = now.time()
+        logger.info(f"بررسی زمان ارسال {send_time.hour}:{send_time.minute}")
+        
+        # اگر دقیقاً در زمان مشخص شده هستیم (با محدوده 1 دقیقه)
         if (
+            send_time.hour == current_time.hour and
+            abs(send_time.minute - current_time.minute) <= 1
+        ):
+            logger.info(f"دقیقاً در زمان ارسال مشخص شده هستیم ({send_time.hour}:{send_time.minute})")
+            # در زمان دقیق مشخص شده، همیشه پیام جدید ارسال می‌کنیم
+            return True
+            
+        # اگر در محدوده گسترده‌تر زمان ارسال هستیم (5 دقیقه)
+        elif (
             send_time.hour == current_time.hour and
             abs(send_time.minute - current_time.minute) <= 5
         ):
-            return True
+            logger.info(f"در محدوده زمان ارسال هستیم (±5 دقیقه از {send_time.hour}:{send_time.minute})")
             
+            # اگر آخرین زمان ارسال ثبت نشده است
+            if last_send_time is None:
+                logger.info("هیچ زمان ارسال قبلی ثبت نشده است، پیام جدید ارسال خواهد شد")
+                return True
+                
+            # بررسی تفاوت زمانی
+            time_diff = now - last_send_time
+            logger.info(f"فاصله زمانی از آخرین ارسال: {time_diff.total_seconds()} ثانیه")
+            
+            # اگر امروز پیام ارسال نشده یا از آخرین ارسال بیش از 10 دقیقه گذشته
+            today = now.date()
+            last_send_date = last_send_time.date()
+            
+            if last_send_date < today or time_diff.total_seconds() > 600:
+                logger.info("پیام جدید ارسال خواهد شد (زمان کافی از آخرین ارسال گذشته است)")
+                return True
+            else:
+                logger.info("زمان کافی از آخرین ارسال نگذشته است، پیام ویرایش خواهد شد")
+            
+    logger.info("خارج از زمان‌های ارسال پیام جدید هستیم، پیام ویرایش خواهد شد")
     return False
 
 async def send_new_price_message(bot, prices):
@@ -126,10 +196,11 @@ async def send_new_price_message(bot, prices):
         parse_mode=ParseMode.HTML
     )
     
-    # ذخیره شناسه پیام جدید
+    # ذخیره شناسه پیام جدید و زمان ارسال
     message_id = sent_message.message_id
     save_price_message_id(message_id)
     save_last_message_id(message_id)
+    save_last_send_time()
     logger.info(f"پیام جدید قیمت با ID {message_id} ارسال شد")
     return True
 
@@ -190,15 +261,11 @@ async def find_and_delete_old_price_messages(bot, channel_id):
             logger.info("هیچ پیام قبلی برای حذف یافت نشد")
             return
             
-        logger.info(f"تلاش برای حذف {len(message_ids)} پیام قدیمی...")
+        logger.info(f"تلاش برای حذف {len(message_ids)} پیام قدیمی: {message_ids}")
         deleted_count = 0
         
-        # حذف پیام‌های قبلی به جز آخرین پیام
-        last_id = get_last_message_id()
+        # حذف تمام پیام‌های قبلی
         for msg_id in message_ids:
-            if last_id is not None and msg_id == last_id:
-                continue  # آخرین پیام را حذف نمی‌کنیم
-                
             try:
                 await bot.delete_message(chat_id=channel_id, message_id=msg_id)
                 logger.info(f"پیام قدیمی با ID {msg_id} حذف شد")
@@ -206,13 +273,9 @@ async def find_and_delete_old_price_messages(bot, channel_id):
             except TelegramError as e:
                 logger.error(f"خطا در حذف پیام {msg_id}: {e}")
                 
-        # پاک کردن فایل پس از حذف پیام‌ها (به جز آخرین پیام)
-        new_message_ids = []
-        if last_id is not None:
-            new_message_ids = [last_id]
-            
+        # پاک کردن فایل پس از حذف پیام‌ها
         with open(PRICE_MESSAGES_FILE, 'w') as f:
-            json.dump(new_message_ids, f)
+            json.dump([], f)
             
         logger.info(f"تعداد {deleted_count} پیام حذف شد")
     except Exception as e:

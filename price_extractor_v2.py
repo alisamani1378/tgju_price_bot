@@ -8,6 +8,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 import time
 import re
+import os
 
 # Logging configuration
 logging.basicConfig(
@@ -33,9 +34,41 @@ def setup_driver(headless=True):
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--window-size=1920,1080')
         chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument('--disable-gpu')
         
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        # Try to use a fixed browser if available
+        chrome_paths = [
+            "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+            "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+            os.environ.get("PROGRAMFILES") + "\\Google\\Chrome\\Application\\chrome.exe",
+            os.environ.get("PROGRAMFILES(X86)") + "\\Google\\Chrome\\Application\\chrome.exe"
+        ]
+        
+        for path in chrome_paths:
+            if path and os.path.exists(path):
+                logger.info(f"Using Chrome binary at: {path}")
+                chrome_options.binary_location = path
+                break
+        
+        try:
+            # First try using the ChromeDriverManager approach
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+        except Exception as e:
+            logger.warning(f"Failed to use ChromeDriverManager: {str(e)}")
+            try:
+                # As fallback, try direct webdriver instantiation
+                driver = webdriver.Chrome(options=chrome_options)
+            except Exception as e2:
+                logger.warning(f"Failed to use direct webdriver instantiation: {str(e2)}")
+                # Last resort: use the system path
+                from selenium.webdriver.chrome.service import Service as ChromeService
+                from webdriver_manager.chrome import ChromeDriverManager
+                
+                # Try using a different service instantiation method
+                service = ChromeService(executable_path=ChromeDriverManager().install())
+                driver = webdriver.Chrome(service=service, options=chrome_options)
+        
         driver.set_page_load_timeout(30)
         return driver
     except Exception as e:

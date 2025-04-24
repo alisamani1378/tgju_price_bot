@@ -13,6 +13,9 @@ def get_iran_time_now():
 
 
 def is_send_time(current_time, send_times):
+    """
+    بررسی می‌کند که آیا زمان فعلی یکی از زمان‌های ارسال پیام است یا خیر
+    """
     for send_time in send_times:
         if (
             send_time.hour == current_time.hour and
@@ -23,6 +26,9 @@ def is_send_time(current_time, send_times):
 
 
 def format_price_message(prices):
+    """
+    قالب‌بندی پیام قیمت‌ها برای ارسال
+    """
     now = get_iran_time_now()
     date_str = now.strftime("%Y-%m-%d %H:%M:%S")
     text = f"💵 {PRICE_MESSAGE_KEYWORD} 💵\n\n"
@@ -43,19 +49,37 @@ def format_price_message(prices):
 
 
 def save_latest_message_id(message_id):
-    with open(LATEST_MESSAGE_FILE, 'w') as f:
-        f.write(str(message_id))
+    """
+    ذخیره آخرین شناسه پیام در فایل
+    """
+    try:
+        with open(LATEST_MESSAGE_FILE, 'w') as f:
+            f.write(str(message_id))
+        logging.info(f"آخرین شناسه پیام {message_id} در {LATEST_MESSAGE_FILE} ذخیره شد")
+    except Exception as e:
+        logging.error(f"خطا در ذخیره آخرین شناسه پیام: {e}")
 
 
 def get_latest_message_id_from_file():
-    if not os.path.exists(LATEST_MESSAGE_FILE):
+    """
+    دریافت آخرین شناسه پیام از فایل
+    """
+    try:
+        if not os.path.exists(LATEST_MESSAGE_FILE):
+            return None
+        with open(LATEST_MESSAGE_FILE, 'r') as f:
+            message_id = f.read().strip()
+            return int(message_id) if message_id else None
+    except Exception as e:
+        logging.error(f"خطا در خواندن آخرین شناسه پیام: {e}")
         return None
-    with open(LATEST_MESSAGE_FILE, 'r') as f:
-        message_id = f.read().strip()
-        return int(message_id) if message_id else None
 
 
 async def find_and_delete_old_price_messages(bot, channel_id):
+    """
+    یافتن و حذف پیام‌های قدیمی قیمت در کانال
+    این متد دیگر استفاده نمی‌شود و به جای آن از متد در main.py استفاده می‌شود
+    """
     from telegram.error import TelegramError
     try:
         # get_chat_history is not available in Bot API, so we use get_updates workaround
